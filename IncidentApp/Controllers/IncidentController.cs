@@ -1,9 +1,12 @@
 ﻿using IncidentApp.DTOs;
 using IncidentApp.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace IncidentApp.Controllers
 {
+    [Authorize]
+
     [ApiController]
     [Route("api/incidents")]
     public class IncidentController : ControllerBase
