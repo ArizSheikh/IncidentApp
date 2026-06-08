@@ -13,11 +13,25 @@ namespace IncidentApp.Services
             _repo = repo;
         }
 
+        // =========================
+        // GET ALL INCIDENTS
+        // =========================
         public async Task<List<Incident>> GetAllAsync()
         {
             return await _repo.GetAllAsync();
         }
 
+        // =========================
+        // GET BY ID (FIXED)
+        // =========================
+        public async Task<Incident> GetByIdAsync(int id)
+        {
+            return await _repo.GetByIdAsync(id);
+        }
+
+        // =========================
+        // CREATE INCIDENT
+        // =========================
         public async Task<Incident> CreateAsync(CreateIncidentDto dto)
         {
             var incident = new Incident
@@ -30,12 +44,24 @@ namespace IncidentApp.Services
             };
 
             await _repo.AddAsync(incident);
+
             return incident;
         }
 
+        // =========================
+        // GET CRITICAL INCIDENTS (Stored Proc or DB logic)
+        // =========================
         public async Task<List<Incident>> GetCriticalAsync()
         {
             return await _repo.GetBySeveritySP("Critical");
+        }
+
+        // =========================
+        // SEARCH INCIDENTS (DB-BASED, NOT IN-MEMORY)
+        // =========================
+        public async Task<List<Incident>> SearchAsync(string query)
+        {
+            return await _repo.SearchAsync(query);
         }
     }
 }

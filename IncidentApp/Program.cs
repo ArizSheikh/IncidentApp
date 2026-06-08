@@ -7,6 +7,9 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using IncidentApp.Middleware;
 using Microsoft.OpenApi.Models;
+using IncidentApp.AI;
+using IncidentApp.AI.Validation;
+using IncidentApp.AI.Mapping;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +18,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IncidentService>();
+builder.Services.AddScoped<AIOrchestrationService>();
+builder.Services.AddSingleton<GroqService>();
+builder.Services.AddSingleton<AIResponseValidator>();
+builder.Services.AddSingleton<AIResponseMapper>();
 // Add services to the container.
 
 builder.Services.AddControllers();
