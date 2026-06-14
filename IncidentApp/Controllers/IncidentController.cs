@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace IncidentApp.Controllers
 {
-    [Authorize]
+  
 
     [ApiController]
     [Route("api/incidents")]
@@ -34,6 +34,17 @@ namespace IncidentApp.Controllers
         public async Task<IActionResult> GetCritical()
         {
             return Ok(await _service.GetCriticalAsync());
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetById(int id)
+        {
+            var incident = await _service.GetByIdAsync(id);
+
+            if (incident == null)
+                return NotFound(new { message = "Incident not found" });
+
+            return Ok(incident);
         }
     }
 }

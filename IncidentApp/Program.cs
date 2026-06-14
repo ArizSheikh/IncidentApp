@@ -13,20 +13,25 @@ using IncidentApp.AI.Mapping;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
+#region DB + DI
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<AIOrchestrationService>();
-builder.Services.AddSingleton<GroqService>();
-builder.Services.AddSingleton<AIResponseValidator>();
-builder.Services.AddSingleton<AIResponseMapper>();
-// Add services to the container.
 
+builder.Services.AddScoped<GroqService>();
+builder.Services.AddScoped<AIResponseValidator>();
+builder.Services.AddScoped<AIResponseMapper>();
+#endregion
+
+// -------------------- CONTROLLERS --------------------
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+
+// -------------------- SWAGGER --------------------
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
@@ -60,6 +65,9 @@ builder.Services.AddSwaggerGen(options =>
         }
     });
 });
+
+
+// -------------------- JWT AUTH --------------------
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -77,17 +85,43 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
         };
     });
+
+
+// -------------------- CORS (ADDED FIX) --------------------
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngularApp",
+        policy =>
+        {
+            policy
+                .WithOrigins("http://localhost:4200")
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        });
+});
+
+
+// -------------------- BUILD APP --------------------
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+
+// -------------------- PIPELINE --------------------
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+// Global exception handling
 app.UseMiddleware<ExceptionMiddleware>();
+
 app.UseHttpsRedirection();
+
 app.UseRouting();
+
+// ?? CORS MUST BE HERE (VERY IMPORTANT)
+app.UseCors("AllowAngularApp");
+
 app.UseAuthentication();
 app.UseAuthorization();
 

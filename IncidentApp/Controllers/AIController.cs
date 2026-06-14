@@ -14,11 +14,15 @@ namespace IncidentApp.Controllers
             _aiService = aiService;
         }
 
-        [HttpGet("analyze/{incidentId}")]
-        public async Task<IActionResult> Analyze(int incidentId)
+        [HttpGet("analyze/{id}")]
+        public async Task<IActionResult> Analyze(int id)
         {
-            var result = await _aiService.AnalyzeIncidentAsync(incidentId);
-            return Ok(result);
+            var result = await _aiService.AnalyzeIncidentAsync(id);
+
+            if (!result.IsSuccess)
+                return BadRequest(result.ErrorMessage);
+
+            return Ok(result.Data);
         }
     }
 }

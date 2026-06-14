@@ -31,21 +31,83 @@ namespace IncidentApp.AI
             _mapper = mapper;
         }
 
-        public async Task<AIIncidentResponse> AnalyzeIncidentAsync(int incidentId)
+        public async Task<AIAnalysisResult> AnalyzeIncidentAsync(int incidentId)
         {
-            var incident = await _incidentService.GetByIdAsync(incidentId);
+            try
+            {
+                var incident = await _incidentService.GetByIdAsync(incidentId);
 
-            var similar = await _incidentService.SearchAsync(incident.Title);
+                if (incident == null)
+                {
+                    return new AIAnalysisResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = "Incident not found"
+                    };
+                }
 
-            var prompt = BuildPrompt(incident, similar.ToList());
+                var similar = await _incidentService.SearchAsync(incident.Title);
 
-            var rawResponse = await _llm.GetChatCompletionAsync(prompt);
+                var prompt = BuildPrompt(incident, similar);
 
-            var validated = _validator.ValidateAndParse(rawResponse);
+                var rawResponse = await _llm.GetChatCompletionAsync(prompt);
 
-            var finalResponse = _mapper.MapToDomain(validated);
+                if (string.IsNullOrWhiteSpace(rawResponse))
+                {
+                    return new AIAnalysisResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = "LLM returned empty response"
+                    };
+                }
 
-            return finalResponse;
+                rawResponse = CleanJson(rawResponse);
+
+                AIIncidentRawResponse validated;
+
+                try
+                {
+                    validated = _validator.ValidateAndParse(rawResponse);
+                }
+                catch (Exception ex)
+                {
+                    return new AIAnalysisResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = "JSON parsing failed: " + ex.Message
+                    };
+                }
+
+                AIIncidentResponse mapped;
+
+                try
+                {
+                    mapped = _mapper.MapToDomain(validated);
+                }
+                catch (Exception ex)
+                {
+                    return new AIAnalysisResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = "Mapping failed: " + ex.Message
+                    };
+                }
+
+                return new AIAnalysisResult
+                {
+                    IsSuccess = true,
+                    Data = mapped
+                };
+            }
+            catch (Exception ex)
+            {
+                // LAST SAFETY NET
+                return new AIAnalysisResult
+                {
+                    IsSuccess = false,
+                    ErrorMessage = "Unexpected AI failure: " + ex.Message
+                };
+            }
         }
         private string BuildPrompt(Incident incident, List<Incident> similarIncidents)
         {
@@ -62,7 +124,7 @@ namespace IncidentApp.AI
             sb.AppendLine("Your job:");
             sb.AppendLine("- identify likely root cause");
             sb.AppendLine("- correlate with similar incidents");
-            sb.AppendLine("- provide actionable mitigation steps");
+            sb.AppendLine("- provide actionable mitigation steps,mitigationPlan must ALWAYS be an array of strings");
             sb.AppendLine("- estimate severity");
             sb.AppendLine("- provide confidence score");
             sb.AppendLine();
