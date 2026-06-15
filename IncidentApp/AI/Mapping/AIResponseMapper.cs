@@ -8,11 +8,12 @@ namespace IncidentApp.AI.Mapping
         {
             return new AIIncidentResponse
             {
-                Summary = raw.summary,
                 RootCause = raw.rootCause,
                 MitigationPlan = raw.mitigationPlan,
                 SeverityAssessment = raw.severityAssessment,
-                ConfidenceScore = raw.confidenceScore
+                ConfidenceScore = raw.confidenceScore,
+                SimilarIncidentsSummary = raw.similarIncidentsSummary,
+                Recommendation = raw.recommendation
             };
         }
     }
