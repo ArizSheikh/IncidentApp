@@ -2,6 +2,7 @@
 using IncidentApp.AI.Validation;
 using IncidentApp.AI.Prompts;
 using IncidentApp.AI.VectorSearch;
+using IncidentApp.AI.SemanticKernel;
 using IncidentApp.Models;
 using IncidentApp.Models.AI;
 using IncidentApp.Services;
@@ -11,7 +12,7 @@ namespace IncidentApp.AI
     public class AIOrchestrationService
     {
         private readonly IncidentService _incidentService;
-        private readonly GroqService _llm;
+        private readonly SemanticKernelService _llm;
         private readonly AIResponseValidator _validator;
         private readonly AIResponseMapper _mapper;
         private readonly QdrantVectorSearchService _vectorSearch;
@@ -25,7 +26,7 @@ namespace IncidentApp.AI
 
         public AIOrchestrationService(
             IncidentService incidentService,
-            GroqService llm,
+            SemanticKernelService llm,
             AIResponseValidator validator,
             AIResponseMapper mapper,
             QdrantVectorSearchService vectorSearch)
