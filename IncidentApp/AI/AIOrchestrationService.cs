@@ -1,10 +1,10 @@
 ﻿using IncidentApp.AI.Mapping;
 using IncidentApp.AI.Validation;
+using IncidentApp.AI.Prompts;
+using IncidentApp.AI.VectorSearch;
 using IncidentApp.Models;
 using IncidentApp.Models.AI;
 using IncidentApp.Services;
-using System.Text;
-using System.Text.Json;
 
 namespace IncidentApp.AI
 {
@@ -14,21 +14,29 @@ namespace IncidentApp.AI
         private readonly GroqService _llm;
         private readonly AIResponseValidator _validator;
         private readonly AIResponseMapper _mapper;
+        private readonly QdrantVectorSearchService _vectorSearch;
+        private readonly RAGPromptBuilder _ragPromptBuilder;
+        private readonly AuditLoggingPrompt _auditPromptBuilder;
 
         public AIOrchestrationService(IncidentService incidentService)
         {
             _incidentService = incidentService;
         }
+
         public AIOrchestrationService(
-     IncidentService incidentService,
-     GroqService llm,
-     AIResponseValidator validator,
-     AIResponseMapper mapper)
+            IncidentService incidentService,
+            GroqService llm,
+            AIResponseValidator validator,
+            AIResponseMapper mapper,
+            QdrantVectorSearchService vectorSearch)
         {
             _incidentService = incidentService;
             _llm = llm;
             _validator = validator;
             _mapper = mapper;
+            _vectorSearch = vectorSearch;
+            _ragPromptBuilder = new RAGPromptBuilder();
+            _auditPromptBuilder = new AuditLoggingPrompt();
         }
 
         public async Task<AIAnalysisResult> AnalyzeIncidentAsync(int incidentId)
@@ -46,10 +54,17 @@ namespace IncidentApp.AI
                     };
                 }
 
-                var similar = await _incidentService.SearchAsync(incident.Title);
+                // Use vector search to find similar incidents
+                var similarIncidents = await _vectorSearch.SearchSimilarIncidentsAsync(
+                    incident.Description,
+                    limit: 5,
+                    scoreThreshold: 0.6f
+                );
 
-                var prompt = BuildPrompt(incident, similar);
+                // Build RAG prompt with retrieved context
+                var prompt = _ragPromptBuilder.BuildPrompt(similarIncidents, incident);
 
+                // Get LLM response
                 var rawResponse = await _llm.GetChatCompletionAsync(prompt);
 
                 if (string.IsNullOrWhiteSpace(rawResponse))
@@ -93,10 +108,14 @@ namespace IncidentApp.AI
                     };
                 }
 
+                // Generate audit log
+                var auditLog = GenerateAuditLog(similarIncidents, mapped);
+
                 return new AIAnalysisResult
                 {
                     IsSuccess = true,
-                    Data = mapped
+                    Data = mapped,
+                    AuditLog = auditLog
                 };
             }
             catch (Exception ex)
@@ -109,73 +128,58 @@ namespace IncidentApp.AI
                 };
             }
         }
-        private string BuildPrompt(Incident incident, List<Incident> similarIncidents)
+
+        public async Task<bool> IndexIncidentForSearchAsync(int incidentId)
         {
-            var sb = new StringBuilder();
-
-            sb.AppendLine("You are an enterprise AI incident management assistant.");
-            sb.AppendLine();
-            sb.AppendLine("Analyze the production incident using:");
-            sb.AppendLine("- Current incident details");
-            sb.AppendLine("- Similar historical incidents");
-            sb.AppendLine("- Operational reasoning");
-            sb.AppendLine();
-
-            sb.AppendLine("Your job:");
-            sb.AppendLine("- identify likely root cause");
-            sb.AppendLine("- correlate with similar incidents");
-            sb.AppendLine("- provide actionable mitigation steps,mitigationPlan must ALWAYS be an array of strings");
-            sb.AppendLine("- estimate severity");
-            sb.AppendLine("- provide confidence score");
-            sb.AppendLine();
-
-            sb.AppendLine("Current Incident:");
-            sb.AppendLine($"Title: {incident.Title}");
-            sb.AppendLine($"Description: {incident.Description}");
-            sb.AppendLine($"Severity: {incident.Severity}");
-            sb.AppendLine($"Status: {incident.Status}");
-            sb.AppendLine();
-
-            sb.AppendLine("Similar Historical Incidents:");
-
-            foreach (var x in similarIncidents)
+            try
             {
-                sb.AppendLine("-----------------");
-                sb.AppendLine($"Title: {x.Title}");
-                sb.AppendLine($"Description: {x.Description}");
-                sb.AppendLine($"Severity: {x.Severity}");
-                sb.AppendLine($"Status: {x.Status}");
+                var incident = await _incidentService.GetByIdAsync(incidentId);
+
+                if (incident == null)
+                {
+                    Console.WriteLine($"Incident {incidentId} not found");
+                    return false;
+                }
+
+                Console.WriteLine($"Indexing incident {incidentId}: {incident.Title}");
+                await _vectorSearch.IndexIncidentAsync(
+                    incidentId: (ulong)incident.Id,
+                    incidentTitle: incident.Title ?? "Unknown",
+                    severity: incident.Severity ?? "Unknown",
+                    incidentDescription: incident.Description ?? "No description",
+                    category: "General",
+                    logs: "",
+                    systemComponent: "General"
+                );
+
+                Console.WriteLine($"Successfully indexed incident {incidentId}");
+                return true;
             }
-
-            sb.AppendLine();
-            sb.AppendLine("Rules:");
-            sb.AppendLine("- Use historical incidents for correlation");
-            sb.AppendLine("- Be specific and technical");
-            sb.AppendLine("- Avoid generic answers");
-            sb.AppendLine("- Only say unknown if absolutely necessary");
-            sb.AppendLine("- Confidence must reflect evidence strength");
-            sb.AppendLine();
-
-            sb.AppendLine("Return ONLY valid JSON:");
-            sb.AppendLine(@"
-{
-  ""summary"": """",
-  ""rootCause"": """",
-  ""mitigationPlan"": """",
-  ""severityAssessment"": """",
-  ""confidenceScore"": 0.0
-}
-");
-
-            return sb.ToString();
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error indexing incident {incidentId}: {ex.Message}");
+                return false;
+            }
         }
 
-        private async Task<AIIncidentResponse> CallLLMAsync(string prompt)
+        private string GenerateAuditLog(List<Incident> retrievedIncidents, AIIncidentResponse response)
         {
-            var result = await _llm.GetChatCompletionAsync(prompt);
-            result = CleanJson(result);
-            return JsonSerializer.Deserialize<AIIncidentResponse>(result);
+            var context = retrievedIncidents.Count > 0
+                ? $"Retrieved {retrievedIncidents.Count} similar incidents"
+                : "No similar incidents found";
+
+            var relevanceReason = retrievedIncidents.Count > 0
+                ? "Historical incidents used for context and correlation"
+                : "Analysis based on current incident only";
+
+            var reasoningSteps = $"1. Retrieved {retrievedIncidents.Count} similar incidents from vector database\n" +
+                               $"2. Analyzed current incident against historical patterns\n" +
+                               $"3. Identified root cause with confidence score of {response.ConfidenceScore}\n" +
+                               $"4. Generated mitigation plan based on similar resolved incidents";
+
+            return _auditPromptBuilder.BuildAuditLog(context, relevanceReason, reasoningSteps);
         }
+
         private string CleanJson(string input)
         {
             if (string.IsNullOrWhiteSpace(input))
@@ -186,7 +190,5 @@ namespace IncidentApp.AI
                 .Replace("```", "")
                 .Trim();
         }
-
-       
     }
 }
