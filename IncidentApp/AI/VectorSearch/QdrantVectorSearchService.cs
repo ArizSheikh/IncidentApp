@@ -11,11 +11,11 @@ namespace IncidentApp.AI.VectorSearch
         private readonly QdrantClient _qdrantClient;
         private readonly string _collectionName;
         private readonly VectorSearchPrompt _promptBuilder;
-        private readonly LocalEmbeddingService _embeddingService;
+        private readonly OllamaEmbeddingService _embeddingService;
 
         public QdrantVectorSearchService(
             IConfiguration config,
-            LocalEmbeddingService embeddingService)
+            OllamaEmbeddingService embeddingService)
         {
             var host = config["Qdrant:Host"] ?? "localhost";
             var port = int.Parse(config["Qdrant:Port"] ?? "6334");
@@ -26,21 +26,25 @@ namespace IncidentApp.AI.VectorSearch
             _embeddingService = embeddingService;
         }
 
-        public async Task InitializeCollectionAsync(int vectorSize = 384)
+        public async Task InitializeCollectionAsync(int vectorSize = 768)
         {
             var collections = await _qdrantClient.ListCollectionsAsync();
             
-            if (!collections.Any(c => c == _collectionName))
+            if (collections.Any(c => c == _collectionName))
             {
-                await _qdrantClient.CreateCollectionAsync(
-                    _collectionName,
-                    new VectorParams
-                    {
-                        Size = (ulong)vectorSize,
-                        Distance = Distance.Cosine
-                    }
-                );
+                Console.WriteLine($"Collection '{_collectionName}' already exists. Deleting and recreating with {vectorSize} dimensions...");
+                await _qdrantClient.DeleteCollectionAsync(_collectionName);
             }
+            
+            await _qdrantClient.CreateCollectionAsync(
+                _collectionName,
+                new VectorParams
+                {
+                    Size = (ulong)vectorSize,
+                    Distance = Distance.Cosine
+                }
+            );
+            Console.WriteLine($"Collection created/recreated with {vectorSize} dimensions");
         }
 
         public async Task<ulong> IndexIncidentAsync(

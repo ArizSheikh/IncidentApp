@@ -17,6 +17,11 @@ namespace IncidentApp.AI
 
         public async Task<string> GetChatCompletionAsync(string prompt)
         {
+            if (string.IsNullOrWhiteSpace(_apiKey))
+            {
+                throw new InvalidOperationException("Groq API key is not configured. Please set the Groq:ApiKey in appsettings.Development.json");
+            }
+
             var requestBody = new
             {
                 model = "llama-3.3-70b-versatile",
@@ -45,10 +50,19 @@ namespace IncidentApp.AI
             var response = await _httpClient.SendAsync(request);
             var json = await response.Content.ReadAsStringAsync();
 
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException($"Groq API request failed with status {response.StatusCode}. Response: {json}");
+            }
+
             using var doc = JsonDocument.Parse(json);
 
-            var result = doc.RootElement
-                .GetProperty("choices")[0]
+            if (!doc.RootElement.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+            {
+                throw new InvalidOperationException("Invalid response format from Groq API: 'choices' property missing or empty");
+            }
+
+            var result = choices[0]
                 .GetProperty("message")
                 .GetProperty("content")
                 .GetString();

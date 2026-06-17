@@ -26,7 +26,7 @@ builder.Services.AddScoped<AIOrchestrationService>();
 builder.Services.AddScoped<GroqService>();
 builder.Services.AddScoped<AIResponseValidator>();
 builder.Services.AddScoped<AIResponseMapper>();
-builder.Services.AddScoped<LocalEmbeddingService>();
+builder.Services.AddScoped<OllamaEmbeddingService>();
 builder.Services.AddScoped<QdrantVectorSearchService>();
 #endregion
 

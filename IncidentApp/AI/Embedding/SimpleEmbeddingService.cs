@@ -13,7 +13,7 @@ namespace IncidentApp.AI.Embedding
             var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(text));
             
             // Convert to float array and normalize
-            var embedding = new float[384]; // Match bge-small-en-v1.5 dimension
+            var embedding = new float[768]; // Match nomic-embed-text dimension
             
             for (int i = 0; i < embedding.Length; i++)
             {
