@@ -12,6 +12,10 @@ using IncidentApp.AI.Validation;
 using IncidentApp.AI.Mapping;
 using IncidentApp.AI.Embedding;
 using IncidentApp.AI.VectorSearch;
+using IncidentApp.AI.FunctionCalling;
+using IncidentApp.AI.Resilience;
+using IncidentApp.AI.Evaluation;
+using IncidentApp.AI.Agents;
 using IncidentApp.AI.SemanticKernel;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +33,12 @@ builder.Services.AddScoped<SemanticKernelEmbeddingService>();
 builder.Services.AddScoped<AIResponseValidator>();
 builder.Services.AddScoped<AIResponseMapper>();
 builder.Services.AddScoped<QdrantVectorSearchService>();
+
+// AI-Enabled Features
+builder.Services.AddScoped<IncidentTools>();
+builder.Services.AddSingleton<PollyResilienceService>();
+builder.Services.AddSingleton<AIEvaluationService>();
+builder.Services.AddScoped<AgenticWorkflowService>();
 #endregion
 
 // -------------------- CONTROLLERS --------------------
