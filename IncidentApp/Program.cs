@@ -12,6 +12,7 @@ using IncidentApp.AI.Validation;
 using IncidentApp.AI.Mapping;
 using IncidentApp.AI.Embedding;
 using IncidentApp.AI.VectorSearch;
+using IncidentApp.AI.SemanticKernel;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,10 +24,10 @@ builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<AIOrchestrationService>();
 
-builder.Services.AddScoped<GroqService>();
+builder.Services.AddScoped<SemanticKernelService>();
+builder.Services.AddScoped<SemanticKernelEmbeddingService>();
 builder.Services.AddScoped<AIResponseValidator>();
 builder.Services.AddScoped<AIResponseMapper>();
-builder.Services.AddScoped<OllamaEmbeddingService>();
 builder.Services.AddScoped<QdrantVectorSearchService>();
 #endregion
 
