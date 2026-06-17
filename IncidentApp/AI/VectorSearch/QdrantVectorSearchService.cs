@@ -2,6 +2,7 @@ using Qdrant.Client;
 using Qdrant.Client.Grpc;
 using IncidentApp.AI.Prompts;
 using IncidentApp.AI.Embedding;
+using IncidentApp.AI.SemanticKernel;
 using IncidentApp.Models;
 
 namespace IncidentApp.AI.VectorSearch
@@ -11,11 +12,11 @@ namespace IncidentApp.AI.VectorSearch
         private readonly QdrantClient _qdrantClient;
         private readonly string _collectionName;
         private readonly VectorSearchPrompt _promptBuilder;
-        private readonly OllamaEmbeddingService _embeddingService;
+        private readonly SemanticKernelEmbeddingService _embeddingService;
 
         public QdrantVectorSearchService(
             IConfiguration config,
-            OllamaEmbeddingService embeddingService)
+            SemanticKernelEmbeddingService embeddingService)
         {
             var host = config["Qdrant:Host"] ?? "localhost";
             var port = int.Parse(config["Qdrant:Port"] ?? "6334");
