@@ -17,6 +17,8 @@ using IncidentApp.AI.Resilience;
 using IncidentApp.AI.Evaluation;
 using IncidentApp.AI.Agents;
 using IncidentApp.AI.SemanticKernel;
+using IncidentApp.AI.MCP;
+using IncidentApp.AI.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,18 +29,29 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<AIOrchestrationService>();
+builder.Services.AddScoped<AIGovernanceService>();
 
 builder.Services.AddScoped<SemanticKernelService>();
 builder.Services.AddScoped<SemanticKernelEmbeddingService>();
 builder.Services.AddScoped<AIResponseValidator>();
 builder.Services.AddScoped<AIResponseMapper>();
 builder.Services.AddScoped<QdrantVectorSearchService>();
+builder.Services.AddScoped<GroqService>();
 
 // AI-Enabled Features
 builder.Services.AddScoped<IncidentTools>();
 builder.Services.AddSingleton<PollyResilienceService>();
 builder.Services.AddSingleton<AIEvaluationService>();
 builder.Services.AddScoped<AgenticWorkflowService>();
+
+// MCP Features
+builder.Services.AddSingleton<MCPServer>();
+builder.Services.AddScoped<MCPToolAdapter>();
+
+// AI Security Features
+builder.Services.AddSingleton<PromptInjectionDetector>();
+builder.Services.AddSingleton<PIIRedactionService>();
+builder.Services.AddSingleton<AIInputSanitizer>();
 #endregion
 
 // -------------------- CONTROLLERS --------------------
