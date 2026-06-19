@@ -1,5 +1,6 @@
 using IncidentApp.Data;
 using IncidentApp.Models.Governance;
+using IncidentApp.Models.MCP;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -184,6 +185,127 @@ namespace IncidentApp.Services
                 { "AverageLatencyMs", scores.Average(s => s.LatencyMs) },
                 { "AverageTokenCount", scores.Average(s => s.TokenCount) }
             };
+        }
+
+        // MCP Tool Invocation Tracking
+        public async Task TrackToolInvocationAsync(
+            string toolName,
+            string agentName,
+            Dictionary<string, object> arguments,
+            bool success,
+            long durationMs,
+            int? retrievedDocumentCount = null,
+            Dictionary<int, float>? similarityScores = null,
+            int? tokenUsage = null,
+            string? error = null)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            
+            var mcpLog = new MCPToolExecutionLog
+            {
+                ToolName = toolName,
+                AgentName = agentName,
+                Arguments = arguments,
+                Success = success,
+                Error = error,
+                ExecutionTime = DateTime.UtcNow,
+                DurationMs = durationMs,
+                RetryCount = 0,
+                Category = DetermineToolCategory(toolName)
+            };
+
+            context.MCPToolExecutionLogs.Add(mcpLog);
+            await context.SaveChangesAsync();
+
+            if (retrievedDocumentCount.HasValue || similarityScores != null)
+            {
+                await TrackRetrievalMetricsAsync(mcpLog.Id, retrievedDocumentCount, similarityScores);
+            }
+
+            if (tokenUsage.HasValue)
+            {
+                await TrackTokenUsageAsync(mcpLog.Id, tokenUsage.Value);
+            }
+        }
+
+        private async Task TrackRetrievalMetricsAsync(
+            int mcpLogId,
+            int? documentCount,
+            Dictionary<int, float>? similarityScores)
+        {
+            // Implementation for tracking retrieval metrics
+            // Could be extended to store detailed similarity scores
+        }
+
+        private async Task TrackTokenUsageAsync(int mcpLogId, int tokenCount)
+        {
+            // Implementation for tracking token usage
+            // Could be extended to store detailed token metrics
+        }
+
+        public async Task<List<MCPToolExecutionLog>> GetToolInvocationHistoryAsync(
+            string? toolName = null,
+            string? agentName = null,
+            DateTime? startDate = null,
+            DateTime? endDate = null)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            
+            var query = context.MCPToolExecutionLogs.AsQueryable();
+
+            if (!string.IsNullOrEmpty(toolName))
+                query = query.Where(l => l.ToolName == toolName);
+
+            if (!string.IsNullOrEmpty(agentName))
+                query = query.Where(l => l.AgentName == agentName);
+
+            if (startDate.HasValue)
+                query = query.Where(l => l.ExecutionTime >= startDate.Value);
+
+            if (endDate.HasValue)
+                query = query.Where(l => l.ExecutionTime <= endDate.Value);
+
+            return await query.OrderByDescending(l => l.ExecutionTime).ToListAsync();
+        }
+
+        public async Task<Dictionary<string, object>> GetGovernanceMetricsAsync(DateTime startDate, DateTime endDate)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            
+            var mcpLogs = await context.MCPToolExecutionLogs
+                .Where(l => l.ExecutionTime >= startDate && l.ExecutionTime <= endDate)
+                .ToListAsync();
+
+            var evaluations = await context.EvaluationScores
+                .Where(e => e.EvaluatedAt >= startDate && e.EvaluatedAt <= endDate)
+                .ToListAsync();
+
+            return new Dictionary<string, object>
+            {
+                { "TotalToolInvocations", mcpLogs.Count },
+                { "SuccessfulToolInvocations", mcpLogs.Count(l => l.Success) },
+                { "FailedToolInvocations", mcpLogs.Count(l => !l.Success) },
+                { "AverageToolExecutionTimeMs", mcpLogs.Any() ? mcpLogs.Average(l => l.DurationMs) : 0 },
+                { "TotalEvaluations", evaluations.Count },
+                { "AverageAccuracyScore", evaluations.Any() ? evaluations.Average(e => e.AccuracyScore) : 0 },
+                { "AverageRelevanceScore", evaluations.Any() ? evaluations.Average(e => e.RelevanceScore) : 0 },
+                { "AverageLatencyMs", evaluations.Any() ? evaluations.Average(e => e.LatencyMs) : 0 },
+                { "TotalTokenCount", evaluations.Sum(e => e.TokenCount) }
+            };
+        }
+
+        private string DetermineToolCategory(string toolName)
+        {
+            if (toolName.Contains("incident"))
+                return "Incident";
+            if (toolName.Contains("knowledge"))
+                return "Knowledge";
+            if (toolName.Contains("analyze") || toolName.Contains("recommend"))
+                return "AI";
+            return "General";
         }
     }
 }

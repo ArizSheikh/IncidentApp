@@ -139,5 +139,84 @@ namespace IncidentApp.AI.VectorSearch
         {
             await _qdrantClient.DeleteCollectionAsync(_collectionName);
         }
+
+        // Knowledge chunk indexing methods
+        public async Task IndexPointAsync(string collectionName, string pointId, float[] vector, Dictionary<string, object> payload)
+        {
+            var pointIdNum = ulong.Parse(pointId);
+            
+            // Create point without payload first
+            var pointStruct = new PointStruct
+            {
+                Id = pointIdNum,
+                Vectors = vector
+            };
+
+            await _qdrantClient.UpsertAsync(collectionName, new List<PointStruct> { pointStruct });
+            
+            // Set payload separately using SetPayloadAsync
+            var qdrantPayload = new Dictionary<string, Value>();
+            foreach (var kvp in payload)
+            {
+                var value = new Value();
+                if (kvp.Value is string str)
+                    value.StringValue = str;
+                else if (kvp.Value is int i)
+                    value.IntegerValue = i;
+                else if (kvp.Value is long l)
+                    value.IntegerValue = l;
+                else if (kvp.Value is double d)
+                    value.DoubleValue = d;
+                else if (kvp.Value is bool b)
+                    value.BoolValue = b;
+                else
+                    value.StringValue = kvp.Value?.ToString() ?? "";
+                
+                qdrantPayload[kvp.Key] = value;
+            }
+
+            await _qdrantClient.SetPayloadAsync(
+                collectionName,
+                qdrantPayload,
+                new List<ulong> { pointIdNum }
+            );
+        }
+
+        public async Task DeletePointAsync(string collectionName, string pointId)
+        {
+            await _qdrantClient.DeleteAsync(
+                collectionName,
+                ids: new List<ulong> { ulong.Parse(pointId) }
+            );
+        }
+
+        public async Task<List<Dictionary<string, object>>> SearchSimilarVectorsAsync(
+            string collectionName,
+            float[] queryVector,
+            int limit = 5,
+            float scoreThreshold = 0.7f)
+        {
+            var searchResult = await _qdrantClient.SearchAsync(
+                collectionName: collectionName,
+                vector: queryVector,
+                limit: (ulong)limit,
+                scoreThreshold: scoreThreshold
+            );
+
+            var results = new List<Dictionary<string, object>>();
+
+            foreach (var result in searchResult)
+            {
+                var resultDict = new Dictionary<string, object>
+                {
+                    { "id", result.Id.ToString() },
+                    { "score", result.Score },
+                    { "payload", result.Payload.ToDictionary(x => x.Key, x => x.Value) }
+                };
+                results.Add(resultDict);
+            }
+
+            return results;
+        }
     }
 }
