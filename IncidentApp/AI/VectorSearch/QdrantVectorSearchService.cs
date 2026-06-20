@@ -30,22 +30,13 @@ namespace IncidentApp.AI.VectorSearch
         public async Task InitializeCollectionAsync(int vectorSize = 768)
         {
             var collections = await _qdrantClient.ListCollectionsAsync();
-            
             if (collections.Any(c => c == _collectionName))
-            {
-                Console.WriteLine($"Collection '{_collectionName}' already exists. Deleting and recreating with {vectorSize} dimensions...");
-                await _qdrantClient.DeleteCollectionAsync(_collectionName);
-            }
-            
+                return;
+
             await _qdrantClient.CreateCollectionAsync(
                 _collectionName,
-                new VectorParams
-                {
-                    Size = (ulong)vectorSize,
-                    Distance = Distance.Cosine
-                }
+                new VectorParams { Size = (ulong)vectorSize, Distance = Distance.Cosine }
             );
-            Console.WriteLine($"Collection created/recreated with {vectorSize} dimensions");
         }
 
         public async Task<ulong> IndexIncidentAsync(
@@ -143,43 +134,55 @@ namespace IncidentApp.AI.VectorSearch
         // Knowledge chunk indexing methods
         public async Task IndexPointAsync(string collectionName, string pointId, float[] vector, Dictionary<string, object> payload)
         {
-            var pointIdNum = ulong.Parse(pointId);
-            
-            // Create point without payload first
-            var pointStruct = new PointStruct
-            {
-                Id = pointIdNum,
-                Vectors = vector
-            };
+            var point = BuildPointStruct(ulong.Parse(pointId), vector, payload);
+            await _qdrantClient.UpsertAsync(collectionName, new List<PointStruct> { point });
+        }
 
-            await _qdrantClient.UpsertAsync(collectionName, new List<PointStruct> { pointStruct });
-            
-            // Set payload separately using SetPayloadAsync
-            var qdrantPayload = new Dictionary<string, Value>();
+        public async Task IndexPointsBatchAsync(string collectionName, List<(string pointId, float[] vector, Dictionary<string, object> payload)> points)
+        {
+            await EnsureCollectionExistsAsync(collectionName, points[0].vector.Length);
+            var pointStructs = points.Select(p => BuildPointStruct(ulong.Parse(p.pointId), p.vector, p.payload)).ToList();
+            await _qdrantClient.UpsertAsync(collectionName, pointStructs);
+        }
+
+        private static readonly SemaphoreSlim _collectionCreateLock = new(1, 1);
+
+        private async Task EnsureCollectionExistsAsync(string collectionName, int vectorSize)
+        {
+            var collections = await _qdrantClient.ListCollectionsAsync();
+            if (collections.Any(c => c == collectionName))
+                return;
+
+            await _collectionCreateLock.WaitAsync();
+            try
+            {
+                // re-check inside the lock
+                collections = await _qdrantClient.ListCollectionsAsync();
+                if (!collections.Any(c => c == collectionName))
+                    await _qdrantClient.CreateCollectionAsync(collectionName,
+                        new VectorParams { Size = (ulong)vectorSize, Distance = Distance.Cosine });
+            }
+            finally
+            {
+                _collectionCreateLock.Release();
+            }
+        }
+
+        private static PointStruct BuildPointStruct(ulong id, float[] vector, Dictionary<string, object> payload)
+        {
+            var point = new PointStruct { Id = id, Vectors = vector };
             foreach (var kvp in payload)
             {
                 var value = new Value();
-                if (kvp.Value is string str)
-                    value.StringValue = str;
-                else if (kvp.Value is int i)
-                    value.IntegerValue = i;
-                else if (kvp.Value is long l)
-                    value.IntegerValue = l;
-                else if (kvp.Value is double d)
-                    value.DoubleValue = d;
-                else if (kvp.Value is bool b)
-                    value.BoolValue = b;
-                else
-                    value.StringValue = kvp.Value?.ToString() ?? "";
-                
-                qdrantPayload[kvp.Key] = value;
+                if (kvp.Value is string str) value.StringValue = str;
+                else if (kvp.Value is int i) value.IntegerValue = i;
+                else if (kvp.Value is long l) value.IntegerValue = l;
+                else if (kvp.Value is double d) value.DoubleValue = d;
+                else if (kvp.Value is bool b) value.BoolValue = b;
+                else value.StringValue = kvp.Value?.ToString() ?? "";
+                point.Payload[kvp.Key] = value;
             }
-
-            await _qdrantClient.SetPayloadAsync(
-                collectionName,
-                qdrantPayload,
-                new List<ulong> { pointIdNum }
-            );
+            return point;
         }
 
         public async Task DeletePointAsync(string collectionName, string pointId)

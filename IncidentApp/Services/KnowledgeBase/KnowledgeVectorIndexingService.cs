@@ -1,6 +1,7 @@
 using IncidentApp.AI.VectorSearch;
 using IncidentApp.Models.KnowledgeBase;
 using IncidentApp.Repositories;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace IncidentApp.Services.KnowledgeBase
 {
@@ -9,16 +10,19 @@ namespace IncidentApp.Services.KnowledgeBase
         private readonly QdrantVectorSearchService _vectorSearchService;
         private readonly KnowledgeEmbeddingService _embeddingService;
         private readonly IKnowledgeRepository _knowledgeRepository;
+        private readonly IServiceScopeFactory _scopeFactory;
         private const string CollectionName = "knowledge-base";
 
         public KnowledgeVectorIndexingService(
             QdrantVectorSearchService vectorSearchService,
             KnowledgeEmbeddingService embeddingService,
-            IKnowledgeRepository knowledgeRepository)
+            IKnowledgeRepository knowledgeRepository,
+            IServiceScopeFactory scopeFactory)
         {
             _vectorSearchService = vectorSearchService;
             _embeddingService = embeddingService;
             _knowledgeRepository = knowledgeRepository;
+            _scopeFactory = scopeFactory;
         }
 
         public async Task InitializeCollectionAsync()
@@ -32,43 +36,47 @@ namespace IncidentApp.Services.KnowledgeBase
             var document = await _knowledgeRepository.GetDocumentByIdAsync(documentId);
             if (document == null)
                 throw new InvalidOperationException($"Document with ID {documentId} not found");
+            await IndexDocumentAsync(document);
+        }
 
-            var chunks = await _knowledgeRepository.GetChunksByDocumentIdAsync(documentId);
-            var chunksList = chunks.ToList();
+        public async Task IndexDocumentAsync(KnowledgeDocument document)
+        {
+            var allChunks = document.Chunks.Any()
+                ? document.Chunks.ToList()
+                : (await _knowledgeRepository.GetChunksByDocumentIdAsync(document.Id)).ToList();
+
+            var chunksList = allChunks.Where(c => !c.EmbeddingGenerated).ToList();
             if (!chunksList.Any())
                 return;
 
-            // Generate embeddings for all chunks
-            var chunkTexts = chunksList.Select(c => c.ChunkText).ToList();
-            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunkTexts);
+            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunksList.Select(c => c.ChunkText).ToList());
 
-            // Index each chunk in Qdrant
-            for (int i = 0; i < chunksList.Count; i++)
-            {
-                var chunk = chunksList[i];
-                var embedding = embeddings[i];
-
-                var payload = new Dictionary<string, object>
+            var points = chunksList.Select((chunk, i) => (
+                pointId: chunk.Id.ToString(),
+                vector: embeddings[i],
+                payload: new Dictionary<string, object>
                 {
-                    { "documentId", documentId },
+                    { "documentId", document.Id },
                     { "chunkId", chunk.Id },
                     { "chunkIndex", chunk.ChunkIndex },
                     { "title", document.Title },
                     { "category", document.Category },
                     { "source", document.Source }
-                };
+                }
+            )).ToList();
 
-                await _vectorSearchService.IndexPointAsync(
-                    CollectionName,
-                    chunk.Id.ToString(),
-                    embedding,
-                    payload
-                );
-
-                // Update chunk to mark embedding as generated
+            foreach (var chunk in chunksList)
                 chunk.EmbeddingGenerated = true;
-                await _knowledgeRepository.CreateChunkAsync(chunk);
-            }
+
+            var qdrantTask = _vectorSearchService.IndexPointsBatchAsync(CollectionName, points);
+            var dbTask = Task.Run(async () =>
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var repo = scope.ServiceProvider.GetRequiredService<IKnowledgeRepository>();
+                await repo.UpdateChunksBatchAsync(chunksList);
+            });
+
+            await Task.WhenAll(qdrantTask, dbTask);
         }
 
         public async Task RemoveDocumentAsync(int documentId)

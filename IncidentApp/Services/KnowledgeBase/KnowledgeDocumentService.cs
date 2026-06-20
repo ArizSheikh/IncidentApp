@@ -60,9 +60,9 @@ namespace IncidentApp.Services.KnowledgeBase
             return savedDocument;
         }
 
-        public async Task<IEnumerable<KnowledgeDocument>> GetDocumentsAsync()
+        public async Task<IEnumerable<KnowledgeDocument>> GetDocumentsAsync(int? limit = null)
         {
-            return await _knowledgeRepository.GetDocumentsAsync();
+            return await _knowledgeRepository.GetDocumentsAsync(limit);
         }
 
         public async Task<KnowledgeDocument?> GetDocumentByIdAsync(int id)

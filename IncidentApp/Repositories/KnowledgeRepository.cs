@@ -20,12 +20,15 @@ namespace IncidentApp.Repositories
                 .FirstOrDefaultAsync(d => d.Id == id);
         }
 
-        public async Task<IEnumerable<KnowledgeDocument>> GetDocumentsAsync()
+        public async Task<IEnumerable<KnowledgeDocument>> GetDocumentsAsync(int? limit = null)
         {
-            return await _context.KnowledgeDocuments
+            var query = _context.KnowledgeDocuments
                 .Include(d => d.Chunks)
-                .OrderByDescending(d => d.CreatedDate)
-                .ToListAsync();
+                .OrderByDescending(d => d.CreatedDate);
+
+            return limit.HasValue
+                ? await query.Take(limit.Value).ToListAsync()
+                : await query.ToListAsync();
         }
 
         public async Task<KnowledgeDocument> CreateDocumentAsync(KnowledgeDocument document)
@@ -54,11 +57,30 @@ namespace IncidentApp.Repositories
             return true;
         }
 
+        public async Task<KnowledgeChunk?> GetChunkByIdAsync(int id)
+        {
+            return await _context.KnowledgeChunks.FindAsync(id);
+        }
+
         public async Task<KnowledgeChunk> CreateChunkAsync(KnowledgeChunk chunk)
         {
             _context.KnowledgeChunks.Add(chunk);
             await _context.SaveChangesAsync();
             return chunk;
+        }
+
+        public async Task<KnowledgeChunk> UpdateChunkAsync(KnowledgeChunk chunk)
+        {
+            _context.KnowledgeChunks.Update(chunk);
+            await _context.SaveChangesAsync();
+            return chunk;
+        }
+
+        public async Task UpdateChunksBatchAsync(IEnumerable<KnowledgeChunk> chunks)
+        {
+            foreach (var chunk in chunks)
+                _context.KnowledgeChunks.Update(chunk);
+            await _context.SaveChangesAsync();
         }
 
         public async Task<IEnumerable<KnowledgeChunk>> GetChunksByDocumentIdAsync(int documentId)

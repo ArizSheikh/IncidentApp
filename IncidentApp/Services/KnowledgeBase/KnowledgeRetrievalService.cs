@@ -2,6 +2,7 @@ using IncidentApp.Models.KnowledgeBase;
 using IncidentApp.Repositories;
 using IncidentApp.AI.VectorSearch;
 using IncidentApp.AI.Embedding;
+using Qdrant.Client.Grpc;
 
 namespace IncidentApp.Services.KnowledgeBase
 {
@@ -28,39 +29,42 @@ namespace IncidentApp.Services.KnowledgeBase
             return results;
         }
 
-        public async Task<KnowledgeRetrievalResult> RetrieveRelevantKnowledgeAsync(string incidentDescription, int limit = 5, float scoreThreshold = 0.7f)
+        public async Task<KnowledgeRetrievalResult> RetrieveRelevantKnowledgeAsync(string incidentDescription, int limit = 5, float scoreThreshold = 0.3f)
         {
-            var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(incidentDescription);
-            
             var searchResults = await _vectorIndexingService.SearchSimilarChunksAsync(incidentDescription, limit, scoreThreshold);
-            
+
             var knowledgeChunks = new List<KnowledgeChunk>();
             var documents = new List<KnowledgeDocument>();
             var similarityScores = new Dictionary<int, float>();
+            var seenDocIds = new HashSet<int>();
 
             foreach (var result in searchResults)
             {
-                if (result.TryGetValue("chunkId", out var chunkIdObj) && int.TryParse(chunkIdObj.ToString(), out var chunkId))
-                {
-                    var chunk = await _knowledgeRepository.GetChunksByDocumentIdAsync(chunkId);
-                    if (chunk.Any())
-                    {
-                        knowledgeChunks.AddRange(chunk);
-                        
-                        if (result.TryGetValue("documentId", out var docIdObj) && int.TryParse(docIdObj.ToString(), out var docId))
-                        {
-                            var document = await _knowledgeRepository.GetDocumentByIdAsync(docId);
-                            if (document != null)
-                            {
-                                documents.Add(document);
-                            }
-                        }
+                if (!result.TryGetValue("payload", out var payloadObj))
+                    continue;
 
-                        if (result.TryGetValue("score", out var scoreObj) && float.TryParse(scoreObj.ToString(), out var score))
-                        {
-                            similarityScores[chunkId] = score;
-                        }
-                    }
+                var payload = payloadObj as IDictionary<string, Qdrant.Client.Grpc.Value>;
+                if (payload == null) continue;
+
+                if (!payload.TryGetValue("chunkId", out var chunkIdVal)) continue;
+                if (!payload.TryGetValue("documentId", out var docIdVal)) continue;
+
+                var chunkId = (int)chunkIdVal.IntegerValue;
+                var docId = (int)docIdVal.IntegerValue;
+
+                var chunk = await _knowledgeRepository.GetChunkByIdAsync(chunkId);
+                if (chunk == null) continue;
+
+                knowledgeChunks.Add(chunk);
+
+                if (result.TryGetValue("score", out var scoreObj) && scoreObj is float score)
+                    similarityScores[chunkId] = score;
+
+                if (seenDocIds.Add(docId))
+                {
+                    var document = await _knowledgeRepository.GetDocumentByIdAsync(docId);
+                    if (document != null)
+                        documents.Add(document);
                 }
             }
 

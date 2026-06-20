@@ -24,22 +24,18 @@ namespace IncidentApp.Services.KnowledgeBase
 
         public async Task<List<float[]>> GenerateEmbeddingsAsync(List<string> texts)
         {
-            var embeddings = new List<float[]>();
-            
-            foreach (var text in texts)
-            {
-                try
-                {
-                    var embedding = await GenerateEmbeddingAsync(text);
-                    embeddings.Add(embedding);
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException($"Failed to generate embedding for text: {ex.Message}", ex);
-                }
-            }
+            var results = new float[texts.Count][];
+            var semaphore = new SemaphoreSlim(2);
 
-            return embeddings;
+            await Task.WhenAll(texts.Select(async (text, i) =>
+            {
+                await semaphore.WaitAsync();
+                try { results[i] = await GenerateEmbeddingAsync(text); }
+                catch (Exception ex) { throw new InvalidOperationException($"Failed to generate embedding for text: {ex.Message}", ex); }
+                finally { semaphore.Release(); }
+            }));
+
+            return results.ToList();
         }
 
         public async Task<bool> IsAvailableAsync()
