@@ -1,4 +1,6 @@
 using IncidentApp.AI.VectorSearch;
+using IncidentApp.AI.SemanticKernel;
+using IncidentApp.AI.MCP;
 using IncidentApp.Models;
 using IncidentApp.Services;
 
@@ -12,13 +14,13 @@ namespace IncidentApp.AI.Agents
         private readonly RecommendationGeneratorAgent _recommendationGenerator;
 
         public AgenticWorkflowService(
-            IncidentService incidentService,
-            QdrantVectorSearchService vectorSearchService)
+            IAgentToolSelectionService toolSelectionService,
+            IMCPToolExecutionService toolExecutionService)
         {
-            _planner = new PlannerAgent();
-            _retriever = new RetrieverAgent(incidentService, vectorSearchService);
-            _analyzer = new AnalyzerAgent();
-            _recommendationGenerator = new RecommendationGeneratorAgent();
+            _planner = new PlannerAgent(toolSelectionService, toolExecutionService);
+            _retriever = new RetrieverAgent(toolSelectionService, toolExecutionService);
+            _analyzer = new AnalyzerAgent(toolSelectionService, toolExecutionService);
+            _recommendationGenerator = new RecommendationGeneratorAgent(toolSelectionService, toolExecutionService);
         }
 
         public async Task<AgenticWorkflowResult> ProcessIncidentAsync(int incidentId)
@@ -56,11 +58,35 @@ namespace IncidentApp.AI.Agents
 
     public class PlannerAgent
     {
+        private readonly IAgentToolSelectionService _toolSelectionService;
+        private readonly IMCPToolExecutionService _toolExecutionService;
+
+        public PlannerAgent(IAgentToolSelectionService toolSelectionService, IMCPToolExecutionService toolExecutionService)
+        {
+            _toolSelectionService = toolSelectionService;
+            _toolExecutionService = toolExecutionService;
+        }
+
         public async Task<string> PlanAnalysisAsync(int incidentId)
         {
-            // Simulate planning logic
-            await Task.Delay(100);
+            var context = new Dictionary<string, object>
+            {
+                { "incidentId", incidentId },
+                { "task", "planning" }
+            };
+
+            var userRequest = $"Create analysis plan for incident #{incidentId}";
             
+            // Select appropriate tool using MCP tool selection
+            var selectedTool = await _toolSelectionService.SelectToolAsync("PlannerAgent", userRequest, context);
+            
+            // Extract arguments for the selected tool
+            var arguments = await _toolSelectionService.ExtractToolArgumentsAsync(selectedTool, userRequest);
+            arguments["incidentId"] = incidentId;
+
+            // Execute tool through MCP
+            var executionResult = await _toolExecutionService.ExecuteToolAsync(selectedTool, arguments, "PlannerAgent");
+
             var plan = new
             {
                 Step = "Planning",
@@ -69,7 +95,10 @@ namespace IncidentApp.AI.Agents
                 Priority = "High",
                 EstimatedComplexity = "Medium",
                 RequiredContext = new[] { "Historical incidents", "System logs", "Similar patterns" },
-                NextSteps = new[] { "Retrieve historical data", "Analyze patterns", "Generate recommendations" }
+                NextSteps = new[] { "Retrieve historical data", "Analyze patterns", "Generate recommendations" },
+                SelectedTool = selectedTool,
+                ToolExecutionSuccess = executionResult.Success,
+                AIResponse = executionResult.Success ? executionResult.Result?.ToString() : executionResult.Error
             };
 
             return System.Text.Json.JsonSerializer.Serialize(plan);
@@ -78,78 +107,91 @@ namespace IncidentApp.AI.Agents
 
     public class RetrieverAgent
     {
-        private readonly IncidentService _incidentService;
-        private readonly QdrantVectorSearchService _vectorSearchService;
+        private readonly IAgentToolSelectionService _toolSelectionService;
+        private readonly IMCPToolExecutionService _toolExecutionService;
 
-        public RetrieverAgent(IncidentService incidentService, QdrantVectorSearchService vectorSearchService)
+        public RetrieverAgent(IAgentToolSelectionService toolSelectionService, IMCPToolExecutionService toolExecutionService)
         {
-            _incidentService = incidentService;
-            _vectorSearchService = vectorSearchService;
+            _toolSelectionService = toolSelectionService;
+            _toolExecutionService = toolExecutionService;
         }
 
         public async Task<string> RetrieveContextAsync(int incidentId)
         {
-            var incident = await _incidentService.GetByIdAsync(incidentId);
-            if (incident == null)
-                return "Incident not found";
+            var context = new Dictionary<string, object>
+            {
+                { "incidentId", incidentId },
+                { "task", "retrieval" }
+            };
 
-            // Use vector search to find similar incidents
-            var similarIncidents = await _vectorSearchService.SearchSimilarIncidentsAsync(
-                incident.Description ?? string.Empty,
-                limit: 5,
-                scoreThreshold: 0.6f
-            );
+            var userRequest = $"Retrieve similar historical incidents and knowledge context for incident #{incidentId}";
+            
+            // Select appropriate tool using MCP tool selection
+            var selectedTool = await _toolSelectionService.SelectToolAsync("RetrieverAgent", userRequest, context);
+            
+            // Extract arguments for the selected tool
+            var arguments = await _toolSelectionService.ExtractToolArgumentsAsync(selectedTool, userRequest);
+            arguments["incidentId"] = incidentId;
 
-            var context = new
+            // Execute tool through MCP
+            var executionResult = await _toolExecutionService.ExecuteToolAsync(selectedTool, arguments, "RetrieverAgent");
+
+            var retrievalContext = new
             {
                 Step = "Retrieval",
                 IncidentId = incidentId,
-                CurrentIncident = new
-                {
-                    incident.Title,
-                    incident.Description,
-                    incident.Severity,
-                    incident.Status
-                },
-                SimilarIncidentsCount = similarIncidents.Count,
-                SimilarIncidents = similarIncidents.Select(i => new
-                {
-                    i.Id,
-                    i.Title,
-                    i.Description,
-                    i.Severity,
-                    i.Status
-                }).ToList(),
-                RetrievalTimestamp = DateTime.UtcNow
+                SelectedTool = selectedTool,
+                ToolExecutionSuccess = executionResult.Success,
+                RetrievedData = executionResult.Success ? executionResult.Result : null,
+                Error = executionResult.Success ? null : executionResult.Error,
+                RetrievalTimestamp = DateTime.UtcNow,
+                MCPIntegrationStatus = executionResult.Success ? "Active" : "Fallback"
             };
 
-            return System.Text.Json.JsonSerializer.Serialize(context);
+            return System.Text.Json.JsonSerializer.Serialize(retrievalContext);
         }
     }
 
     public class AnalyzerAgent
     {
+        private readonly IAgentToolSelectionService _toolSelectionService;
+        private readonly IMCPToolExecutionService _toolExecutionService;
+
+        public AnalyzerAgent(IAgentToolSelectionService toolSelectionService, IMCPToolExecutionService toolExecutionService)
+        {
+            _toolSelectionService = toolSelectionService;
+            _toolExecutionService = toolExecutionService;
+        }
+
         public async Task<string> AnalyzeIncidentAsync(string planJson, string contextJson)
         {
-            await Task.Delay(200);
+            var context = new Dictionary<string, object>
+            {
+                { "plan", planJson },
+                { "context", contextJson },
+                { "task", "analysis" }
+            };
+
+            var userRequest = "Analyze incident with provided plan and context to identify root cause and contributing factors";
+            
+            // Select appropriate tool using MCP tool selection
+            var selectedTool = await _toolSelectionService.SelectToolAsync("AnalyzerAgent", userRequest, context);
+            
+            // Extract arguments for the selected tool
+            var arguments = await _toolSelectionService.ExtractToolArgumentsAsync(selectedTool, userRequest);
+            arguments["plan"] = planJson;
+            arguments["context"] = contextJson;
+
+            // Execute tool through MCP
+            var executionResult = await _toolExecutionService.ExecuteToolAsync(selectedTool, arguments, "AnalyzerAgent");
 
             var analysis = new
             {
                 Step = "Analysis",
-                RootCause = "Database connection pool exhaustion",
-                ContributingFactors = new[]
-                {
-                    "High concurrent user load",
-                    "Insufficient connection pool size",
-                    "Slow query execution"
-                },
-                SeverityAssessment = "High",
-                ConfidenceScore = 0.85,
-                PatternMatches = new[]
-                {
-                    "Similar incident #123 (connection pool issue)",
-                    "Similar incident #456 (database timeout)"
-                },
+                SelectedTool = selectedTool,
+                ToolExecutionSuccess = executionResult.Success,
+                AnalysisResult = executionResult.Success ? executionResult.Result : null,
+                Error = executionResult.Success ? null : executionResult.Error,
                 AnalysisTimestamp = DateTime.UtcNow
             };
 
@@ -159,34 +201,43 @@ namespace IncidentApp.AI.Agents
 
     public class RecommendationGeneratorAgent
     {
+        private readonly IAgentToolSelectionService _toolSelectionService;
+        private readonly IMCPToolExecutionService _toolExecutionService;
+
+        public RecommendationGeneratorAgent(IAgentToolSelectionService toolSelectionService, IMCPToolExecutionService toolExecutionService)
+        {
+            _toolSelectionService = toolSelectionService;
+            _toolExecutionService = toolExecutionService;
+        }
+
         public async Task<string> GenerateRecommendationsAsync(string analysisJson)
         {
-            await Task.Delay(150);
+            var context = new Dictionary<string, object>
+            {
+                { "analysis", analysisJson },
+                { "task", "recommendation" }
+            };
+
+            var userRequest = "Generate mitigation recommendations based on incident analysis";
+            
+            // Select appropriate tool using MCP tool selection
+            var selectedTool = await _toolSelectionService.SelectToolAsync("RecommendationGeneratorAgent", userRequest, context);
+            
+            // Extract arguments for the selected tool
+            var arguments = await _toolSelectionService.ExtractToolArgumentsAsync(selectedTool, userRequest);
+            arguments["analysis"] = analysisJson;
+
+            // Execute tool through MCP
+            var executionResult = await _toolExecutionService.ExecuteToolAsync(selectedTool, arguments, "RecommendationGeneratorAgent");
 
             var recommendations = new
             {
                 Step = "Recommendation Generation",
-                ImmediateActions = new[]
-                {
-                    "Increase database connection pool size",
-                    "Implement connection timeout handling",
-                    "Add monitoring for connection pool metrics"
-                },
-                LongTermActions = new[]
-                {
-                    "Implement database connection pooling best practices",
-                    "Add circuit breaker pattern for database calls",
-                    "Optimize slow queries identified in analysis"
-                },
-                PreventiveMeasures = new[]
-                {
-                    "Set up alerts for connection pool exhaustion",
-                    "Implement load testing for peak scenarios",
-                    "Add database performance monitoring"
-                },
-                EstimatedResolutionTime = "2-4 hours",
-                Priority = "High",
-                GeneratedAt = DateTime.UtcNow
+                SelectedTool = selectedTool,
+                ToolExecutionSuccess = executionResult.Success,
+                Recommendations = executionResult.Success ? executionResult.Result : null,
+                Error = executionResult.Success ? null : executionResult.Error,
+                RecommendationTimestamp = DateTime.UtcNow
             };
 
             return System.Text.Json.JsonSerializer.Serialize(recommendations);
@@ -197,7 +248,7 @@ namespace IncidentApp.AI.Agents
     {
         public bool Success { get; set; }
         public Dictionary<string, string> Steps { get; set; } = new();
-        public long TotalDurationMs { get; set; }
         public string? ErrorMessage { get; set; }
+        public long TotalDurationMs { get; set; }
     }
 }
