@@ -3,9 +3,11 @@ using IncidentApp.AI.Validation;
 using IncidentApp.AI.Prompts;
 using IncidentApp.AI.VectorSearch;
 using IncidentApp.AI.SemanticKernel;
+using IncidentApp.AI.Agents;
 using IncidentApp.Models;
 using IncidentApp.Models.AI;
 using IncidentApp.Services;
+using IncidentApp.Services.KnowledgeBase;
 
 namespace IncidentApp.AI
 {
@@ -18,6 +20,8 @@ namespace IncidentApp.AI
         private readonly QdrantVectorSearchService _vectorSearch;
         private readonly RAGPromptBuilder _ragPromptBuilder;
         private readonly AuditLoggingPrompt _auditPromptBuilder;
+        private readonly AgenticWorkflowService _agenticWorkflow;
+        private readonly KnowledgeRetrievalService _knowledgeRetrievalService;
 
         public AIOrchestrationService(IncidentService incidentService)
         {
@@ -29,13 +33,17 @@ namespace IncidentApp.AI
             SemanticKernelService llm,
             AIResponseValidator validator,
             AIResponseMapper mapper,
-            QdrantVectorSearchService vectorSearch)
+            QdrantVectorSearchService vectorSearch,
+            AgenticWorkflowService agenticWorkflow,
+            KnowledgeRetrievalService knowledgeRetrievalService)
         {
             _incidentService = incidentService;
             _llm = llm;
             _validator = validator;
             _mapper = mapper;
             _vectorSearch = vectorSearch;
+            _agenticWorkflow = agenticWorkflow;
+            _knowledgeRetrievalService = knowledgeRetrievalService;
             _ragPromptBuilder = new RAGPromptBuilder();
             _auditPromptBuilder = new AuditLoggingPrompt();
         }
@@ -55,6 +63,9 @@ namespace IncidentApp.AI
                     };
                 }
 
+                // Run MCP agentic workflow (Planner → Retriever → Analyzer → Recommender)
+                var agenticResult = await _agenticWorkflow.ProcessIncidentAsync(incidentId);
+
                 // Use vector search to find similar incidents
                 var similarIncidents = await _vectorSearch.SearchSimilarIncidentsAsync(
                     incident.Description,
@@ -62,8 +73,15 @@ namespace IncidentApp.AI
                     scoreThreshold: 0.6f
                 );
 
-                // Build RAG prompt with retrieved context
-                var prompt = _ragPromptBuilder.BuildPrompt(similarIncidents, incident);
+                // Retrieve relevant knowledge from knowledge base (including uploaded documents like MFA)
+                var knowledgeResult = await _knowledgeRetrievalService.RetrieveRelevantKnowledgeAsync(
+                    incident.Description,
+                    limit: 5,
+                    scoreThreshold: 0.3f
+                );
+
+                // Build RAG prompt with retrieved context from both incidents and knowledge base
+                var prompt = _ragPromptBuilder.BuildPrompt(similarIncidents, incident, knowledgeResult.Documents);
 
                 // Get LLM response
                 var rawResponse = await _llm.GetChatCompletionAsync(prompt);
@@ -116,7 +134,8 @@ namespace IncidentApp.AI
                 {
                     IsSuccess = true,
                     Data = mapped,
-                    AuditLog = auditLog
+                    AuditLog = auditLog,
+                    AgenticWorkflow = agenticResult
                 };
             }
             catch (Exception ex)

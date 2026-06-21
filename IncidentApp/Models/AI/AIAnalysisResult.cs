@@ -1,4 +1,6 @@
-﻿namespace IncidentApp.Models.AI
+﻿using IncidentApp.AI.Agents;
+
+namespace IncidentApp.Models.AI
 {
     public class AIAnalysisResult
     {
@@ -6,5 +8,6 @@
         public AIIncidentResponse? Data { get; set; }
         public string? ErrorMessage { get; set; }
         public string? AuditLog { get; set; }
+        public AgenticWorkflowResult? AgenticWorkflow { get; set; }
     }
 }

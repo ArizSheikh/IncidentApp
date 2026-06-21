@@ -36,7 +36,7 @@ namespace IncidentApp.Controllers
             return Ok(await _service.GetCriticalAsync());
         }
 
-        [HttpGet("{id}")]
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {
             var incident = await _service.GetByIdAsync(id);

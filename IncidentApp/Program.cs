@@ -1,6 +1,7 @@
 using IncidentApp.Data;
 using IncidentApp.Repositories;
 using IncidentApp.Services;
+using IncidentApp.Services.KnowledgeBase;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -17,6 +18,10 @@ using IncidentApp.AI.Resilience;
 using IncidentApp.AI.Evaluation;
 using IncidentApp.AI.Agents;
 using IncidentApp.AI.SemanticKernel;
+using IncidentApp.AI.MCP;
+using IncidentApp.AI.Security;
+using IncidentApp.Models.MCP;
+using IncidentApp.Models.KnowledgeBase;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,18 +32,54 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<AIOrchestrationService>();
+builder.Services.AddScoped<AIGovernanceService>();
+builder.Services.AddScoped<IKnowledgeRepository, KnowledgeRepository>();
+builder.Services.AddScoped<IMCPExecutionLogRepository, MCPExecutionLogRepository>();
 
 builder.Services.AddScoped<SemanticKernelService>();
 builder.Services.AddScoped<SemanticKernelEmbeddingService>();
 builder.Services.AddScoped<AIResponseValidator>();
 builder.Services.AddScoped<AIResponseMapper>();
 builder.Services.AddScoped<QdrantVectorSearchService>();
+builder.Services.AddScoped<GroqService>();
+
+// Embedding Services
+builder.Services.AddScoped<OllamaEmbeddingService>();
+
+// MCP Integration
+builder.Services.AddScoped<MCPServer>();
+builder.Services.AddScoped<MCPToolAdapter>();
 
 // AI-Enabled Features
 builder.Services.AddScoped<IncidentTools>();
 builder.Services.AddSingleton<PollyResilienceService>();
 builder.Services.AddSingleton<AIEvaluationService>();
 builder.Services.AddScoped<AgenticWorkflowService>();
+builder.Services.AddScoped<IAgentToolSelectionService, AgentToolSelectionService>();
+
+// AI Security Features
+builder.Services.AddSingleton<PromptInjectionDetector>();
+builder.Services.AddSingleton<PIIRedactionService>();
+builder.Services.AddSingleton<AIInputSanitizer>();
+
+// KnowledgeBase Features
+builder.Services.AddScoped<ITextExtractionService, PdfTextExtractionService>();
+builder.Services.AddScoped<ITextExtractionService, DocxTextExtractionService>();
+builder.Services.AddScoped<ITextExtractionService, TextFileExtractionService>();
+builder.Services.AddScoped<PdfTextExtractionService>();
+builder.Services.AddScoped<DocxTextExtractionService>();
+builder.Services.AddScoped<TextFileExtractionService>();
+builder.Services.AddScoped<DocumentChunkingService>();
+builder.Services.AddScoped<KnowledgeDocumentService>();
+builder.Services.AddScoped<KnowledgeEmbeddingService>();
+builder.Services.AddScoped<KnowledgeVectorIndexingService>();
+builder.Services.AddScoped<KnowledgeRetrievalService>();
+builder.Services.AddScoped<KnowledgeBaseSeederService>();
+builder.Services.AddHostedService<KnowledgeBaseSeedingHostedService>();
+
+// MCP Runtime Features
+builder.Services.AddScoped<IMCPToolExecutionService, MCPToolExecutionService>();
+builder.Services.AddScoped<IMCPObservabilityService, MCPObservabilityService>();
 #endregion
 
 // -------------------- CONTROLLERS --------------------
