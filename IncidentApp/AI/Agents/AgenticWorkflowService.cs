@@ -28,30 +28,37 @@ namespace IncidentApp.AI.Agents
             var workflow = new AgenticWorkflowResult();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            try
-            {
-                // Step 1: Planner - Analyze the incident and create a plan
-                workflow.Steps.Add("Planner", await _planner.PlanAnalysisAsync(incidentId));
-
-                // Step 2: Retriever - Fetch relevant historical incidents
-                workflow.Steps.Add("Retriever", await _retriever.RetrieveContextAsync(incidentId));
-
-                // Step 3: Analyzer - Analyze the incident with context
-                workflow.Steps.Add("Analyzer", await _analyzer.AnalyzeIncidentAsync(workflow.Steps["Planner"], workflow.Steps["Retriever"]));
-
-                // Step 4: Recommendation Generator - Generate actionable recommendations
-                workflow.Steps.Add("RecommendationGenerator", await _recommendationGenerator.GenerateRecommendationsAsync(workflow.Steps["Analyzer"]));
-
-                workflow.Success = true;
-                workflow.TotalDurationMs = stopwatch.ElapsedMilliseconds;
-            }
-            catch (Exception ex)
-            {
-                workflow.Success = false;
-                workflow.ErrorMessage = ex.Message;
-                workflow.TotalDurationMs = stopwatch.ElapsedMilliseconds;
+            Console.WriteLine($"[ProcessIncidentAsync] Starting Planner step for incident {incidentId}");
+            try { workflow.Steps.Add("Planner", await _planner.PlanAnalysisAsync(incidentId)); }
+            catch (Exception ex) { 
+                Console.WriteLine($"[ProcessIncidentAsync] Planner failed: {ex.Message}");
+                workflow.Steps.Add("Planner", "{\"error\":\"" + ex.Message + "\"}"); 
             }
 
+            Console.WriteLine($"[ProcessIncidentAsync] Starting Retriever step for incident {incidentId}");
+            try { workflow.Steps.Add("Retriever", await _retriever.RetrieveContextAsync(incidentId)); }
+            catch (Exception ex) { 
+                Console.WriteLine($"[ProcessIncidentAsync] Retriever failed: {ex.Message}");
+                workflow.Steps.Add("Retriever", "{\"error\":\"" + ex.Message + "\"}"); 
+            }
+
+            Console.WriteLine($"[ProcessIncidentAsync] Starting Analyzer step for incident {incidentId}");
+            try { workflow.Steps.Add("Analyzer", await _analyzer.AnalyzeIncidentAsync(workflow.Steps["Planner"], workflow.Steps["Retriever"])); }
+            catch (Exception ex) { 
+                Console.WriteLine($"[ProcessIncidentAsync] Analyzer failed: {ex.Message}");
+                workflow.Steps.Add("Analyzer", "{\"error\":\"" + ex.Message + "\"}"); 
+            }
+
+            Console.WriteLine($"[ProcessIncidentAsync] Starting RecommendationGenerator step for incident {incidentId}");
+            try { workflow.Steps.Add("RecommendationGenerator", await _recommendationGenerator.GenerateRecommendationsAsync(workflow.Steps["Analyzer"])); }
+            catch (Exception ex) { 
+                Console.WriteLine($"[ProcessIncidentAsync] RecommendationGenerator failed: {ex.Message}");
+                workflow.Steps.Add("RecommendationGenerator", "{\"error\":\"" + ex.Message + "\"}"); 
+            }
+
+            workflow.Success = true;
+            workflow.TotalDurationMs = stopwatch.ElapsedMilliseconds;
+            Console.WriteLine($"[ProcessIncidentAsync] Workflow completed in {workflow.TotalDurationMs}ms");
             return workflow;
         }
     }
@@ -69,6 +76,7 @@ namespace IncidentApp.AI.Agents
 
         public async Task<string> PlanAnalysisAsync(int incidentId)
         {
+            Console.WriteLine($"[PlannerAgent] Starting PlanAnalysisAsync for incident {incidentId}");
             var context = new Dictionary<string, object>
             {
                 { "incidentId", incidentId },
@@ -78,14 +86,20 @@ namespace IncidentApp.AI.Agents
             var userRequest = $"Create analysis plan for incident #{incidentId}";
             
             // Select appropriate tool using MCP tool selection
+            Console.WriteLine($"[PlannerAgent] Selecting tool for request: {userRequest}");
             var selectedTool = await _toolSelectionService.SelectToolAsync("PlannerAgent", userRequest, context);
+            Console.WriteLine($"[PlannerAgent] Selected tool: {selectedTool}");
             
             // Extract arguments for the selected tool
+            Console.WriteLine($"[PlannerAgent] Extracting arguments for tool: {selectedTool}");
             var arguments = await _toolSelectionService.ExtractToolArgumentsAsync(selectedTool, userRequest);
             arguments["incidentId"] = incidentId;
+            Console.WriteLine($"[PlannerAgent] Arguments extracted: {string.Join(", ", arguments.Keys)}");
 
             // Execute tool through MCP
+            Console.WriteLine($"[PlannerAgent] Executing tool: {selectedTool}");
             var executionResult = await _toolExecutionService.ExecuteToolAsync(selectedTool, arguments, "PlannerAgent");
+            Console.WriteLine($"[PlannerAgent] Tool execution result - Success: {executionResult.Success}");
 
             var plan = new
             {
@@ -101,6 +115,7 @@ namespace IncidentApp.AI.Agents
                 AIResponse = executionResult.Success ? executionResult.Result?.ToString() : executionResult.Error
             };
 
+            Console.WriteLine($"[PlannerAgent] PlanAnalysisAsync completed for incident {incidentId}");
             return System.Text.Json.JsonSerializer.Serialize(plan);
         }
     }

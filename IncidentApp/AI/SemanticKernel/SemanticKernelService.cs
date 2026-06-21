@@ -84,10 +84,32 @@ namespace IncidentApp.AI.SemanticKernel
 
             stopwatch.Stop();
             var response = result.Content ?? string.Empty;
+            response = CleanLlmResponse(response);
 
-            // Log governance data
-            _ = LogGovernanceDataAsync(prompt, response, stopwatch.ElapsedMilliseconds);
+            // Log governance data (wrapped in try-catch to prevent blocking)
+            try
+            {
+                _ = LogGovernanceDataAsync(prompt, response, stopwatch.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                // Governance logging failed but don't block the main workflow
+                Console.WriteLine($"[SemanticKernelService] Governance logging failed: {ex.Message}");
+            }
 
+            return response;
+        }
+
+        private static string CleanLlmResponse(string response)
+        {
+            if (string.IsNullOrWhiteSpace(response)) return response;
+            response = response
+                .Replace("```json", "").Replace("```JSON", "")
+                .Replace("```", "").Trim();
+            var start = response.IndexOf('{');
+            var end = response.LastIndexOf('}');
+            if (start >= 0 && end > start)
+                return response.Substring(start, end - start + 1);
             return response;
         }
 

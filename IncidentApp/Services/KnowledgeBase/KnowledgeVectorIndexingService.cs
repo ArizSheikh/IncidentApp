@@ -47,7 +47,12 @@ namespace IncidentApp.Services.KnowledgeBase
 
             var chunksList = allChunks.Where(c => !c.EmbeddingGenerated).ToList();
             if (!chunksList.Any())
+            {
+                Console.WriteLine($"[IndexDocumentAsync] Document {document.Id} has no chunks to index (all chunks already have embeddings)");
                 return;
+            }
+
+            Console.WriteLine($"[IndexDocumentAsync] Indexing {chunksList.Count} chunks for document {document.Id}");
 
             var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunksList.Select(c => c.ChunkText).ToList());
 
@@ -77,6 +82,7 @@ namespace IncidentApp.Services.KnowledgeBase
             });
 
             await Task.WhenAll(qdrantTask, dbTask);
+            Console.WriteLine($"[IndexDocumentAsync] Successfully indexed {chunksList.Count} chunks for document {document.Id}");
         }
 
         public async Task RemoveDocumentAsync(int documentId)
@@ -100,8 +106,9 @@ namespace IncidentApp.Services.KnowledgeBase
 
         public async Task<List<Dictionary<string, object>>> SearchSimilarChunksAsync(string query, int limit = 5, float scoreThreshold = 0.7f)
         {
+            Console.WriteLine($"[SearchSimilarChunksAsync] Searching for: '{query}' with limit={limit}, threshold={scoreThreshold}");
             var queryEmbedding = await _embeddingService.GenerateEmbeddingAsync(query);
-            
+
             var results = await _vectorSearchService.SearchSimilarVectorsAsync(
                 CollectionName,
                 queryEmbedding,
@@ -109,6 +116,7 @@ namespace IncidentApp.Services.KnowledgeBase
                 scoreThreshold
             );
 
+            Console.WriteLine($"[SearchSimilarChunksAsync] Found {results.Count} results");
             return results;
         }
 

@@ -13,7 +13,11 @@ namespace IncidentApp.Services.KnowledgeBase
 
         public async Task<float[]> GenerateEmbeddingAsync(string text)
         {
-            var embedding = await _ollamaService.GenerateEmbeddingAsync(text, "knowledge", "default", "default", "default", "low");
+            // Truncate text to prevent exceeding Ollama context window
+            const int maxTextLength = 4000;
+            var truncatedText = text.Length > maxTextLength ? text.Substring(0, maxTextLength) : text;
+
+            var embedding = await _ollamaService.GenerateEmbeddingAsync(truncatedText, "knowledge", "default", "default", "default", "low");
             if (embedding != null && embedding.Length > 0)
             {
                 return embedding;

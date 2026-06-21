@@ -1,29 +1,65 @@
-using IncidentApp.Repositories;
 using IncidentApp.Services;
 using IncidentApp.Services.KnowledgeBase;
 using IncidentApp.AI.VectorSearch;
 using IncidentApp.AI.SemanticKernel;
+using IncidentApp.DTOs;
 
 namespace IncidentApp.AI.MCP
 {
     public class MCPToolExecutionService : IMCPToolExecutionService
     {
-        private readonly MCPServer _mcpServer;
         private readonly IMCPObservabilityService _observabilityService;
         private readonly IncidentService _incidentService;
         private readonly KnowledgeRetrievalService _knowledgeRetrievalService;
         private readonly QdrantVectorSearchService _vectorSearchService;
         private readonly SemanticKernelService _semanticKernelService;
 
+        private static readonly List<MCPToolInfo> _toolDefinitions = new()
+        {
+            new MCPToolInfo
+            {
+                Name = "create_incident",
+                Description = "Creates a new incident",
+                Category = "Incident",
+                RequiredParameters = new List<string> { "title", "description", "severity" }
+            },
+            new MCPToolInfo
+            {
+                Name = "search_incidents",
+                Description = "Searches incidents by term, severity or status",
+                Category = "Incident",
+                RequiredParameters = new List<string>()
+            },
+            new MCPToolInfo
+            {
+                Name = "update_severity",
+                Description = "Updates the severity of an incident",
+                Category = "Incident",
+                RequiredParameters = new List<string> { "incidentId", "newSeverity" }
+            },
+            new MCPToolInfo
+            {
+                Name = "retrieve_historical_incidents",
+                Description = "Retrieves historical incidents similar to provided text",
+                Category = "Incident",
+                RequiredParameters = new List<string> { "currentTitle", "currentDescription" }
+            },
+            new MCPToolInfo
+            {
+                Name = "search_knowledge",
+                Description = "Searches the knowledge base using semantic search",
+                Category = "Knowledge",
+                RequiredParameters = new List<string> { "query" }
+            }
+        };
+
         public MCPToolExecutionService(
-            MCPServer mcpServer,
             IMCPObservabilityService observabilityService,
             IncidentService incidentService,
             KnowledgeRetrievalService knowledgeRetrievalService,
             QdrantVectorSearchService vectorSearchService,
             SemanticKernelService semanticKernelService)
         {
-            _mcpServer = mcpServer;
             _observabilityService = observabilityService;
             _incidentService = incidentService;
             _knowledgeRetrievalService = knowledgeRetrievalService;
@@ -44,30 +80,40 @@ namespace IncidentApp.AI.MCP
 
             try
             {
-                // Validate tool
-                var validation = await ValidateToolAsync(toolName, arguments);
-                if (!validation)
+                result.Result = toolName switch
                 {
-                    result.Success = false;
-                    result.Error = $"Tool validation failed for: {toolName}";
-                    await _observabilityService.LogToolExecutionAsync(result);
-                    return result;
-                }
+                    "create_incident" => await _incidentService.CreateAsync(new CreateIncidentDto
+                    {
+                        Title = arguments.GetValueOrDefault("title")?.ToString() ?? string.Empty,
+                        Description = arguments.GetValueOrDefault("description")?.ToString() ?? string.Empty,
+                        Severity = arguments.GetValueOrDefault("severity")?.ToString() ?? string.Empty
+                    }),
 
-                // Execute tool through MCP Server
-                var mcpRequest = new MCPRequest
-                {
-                    Method = toolName,
-                    Parameters = arguments
+                    "search_incidents" => (await _incidentService.GetAllAsync()).Where(i =>
+                    {
+                        var term = arguments.GetValueOrDefault("searchTerm")?.ToString() ?? string.Empty;
+                        var sev = arguments.GetValueOrDefault("severity")?.ToString();
+                        var status = arguments.GetValueOrDefault("status")?.ToString();
+                        return (string.IsNullOrEmpty(term) || i.Title.Contains(term, StringComparison.OrdinalIgnoreCase) || i.Description.Contains(term, StringComparison.OrdinalIgnoreCase))
+                            && (string.IsNullOrEmpty(sev) || i.Severity == sev)
+                            && (string.IsNullOrEmpty(status) || i.Status == status);
+                    }).ToList(),
+
+                    "update_severity" => await HandleUpdateSeverityAsync(arguments),
+
+                    "retrieve_historical_incidents" => (await _incidentService.GetAllAsync())
+                        .Take(arguments.ContainsKey("limit") ? Convert.ToInt32(arguments["limit"]) : 5)
+                        .ToList(),
+
+                    "search_knowledge" => await _knowledgeRetrievalService.RetrieveRelevantKnowledgeAsync(
+                        arguments.GetValueOrDefault("query")?.ToString() ?? string.Empty,
+                        arguments.ContainsKey("limit") ? Convert.ToInt32(arguments["limit"]) : 5),
+
+                    _ => throw new NotSupportedException($"Tool '{toolName}' is not supported")
                 };
 
-                var mcpResponse = await _mcpServer.ExecuteToolAsync(toolName, mcpRequest);
-
-                result.Success = mcpResponse.Success;
-                result.Result = mcpResponse.Result;
-                result.Error = mcpResponse.Error;
+                result.Success = true;
                 result.Duration = DateTime.UtcNow - startTime;
-
                 await _observabilityService.LogToolExecutionAsync(result);
                 return result;
             }
@@ -81,103 +127,47 @@ namespace IncidentApp.AI.MCP
             }
         }
 
-        public async Task<List<MCPToolInfo>> DiscoverToolsAsync()
+        public Task<List<MCPToolInfo>> DiscoverToolsAsync() => Task.FromResult(_toolDefinitions);
+
+        public Task<bool> ValidateToolAsync(string toolName, Dictionary<string, object> arguments)
         {
-            var tools = new List<MCPToolInfo>();
-            var registeredTools = _mcpServer.ListTools();
-
-            foreach (var tool in registeredTools)
-            {
-                var toolInfo = new MCPToolInfo
-                {
-                    Name = tool.Name,
-                    Description = tool.Description,
-                    Schema = tool.Schema,
-                    Category = DetermineToolCategory(tool.Name)
-                };
-
-                if (tool.Schema.TryGetValue("required", out var requiredObj) && requiredObj is string[] required)
-                {
-                    toolInfo.RequiredParameters = required.ToList();
-                }
-
-                tools.Add(toolInfo);
-            }
-
-            return tools;
-        }
-
-        public async Task<bool> ValidateToolAsync(string toolName, Dictionary<string, object> arguments)
-        {
-            var tools = await DiscoverToolsAsync();
-            var tool = tools.FirstOrDefault(t => t.Name == toolName);
-
-            if (tool == null)
-                return false;
-
-            // Check required parameters
-            foreach (var requiredParam in tool.RequiredParameters)
-            {
-                if (!arguments.ContainsKey(requiredParam))
-                    return false;
-            }
-
-            return true;
+            var tool = _toolDefinitions.FirstOrDefault(t => t.Name == toolName);
+            if (tool == null) return Task.FromResult(false);
+            return Task.FromResult(tool.RequiredParameters.All(p => arguments.ContainsKey(p)));
         }
 
         public async Task<List<MCPToolInfo>> GetToolsByCategoryAsync(string category)
         {
-            var allTools = await DiscoverToolsAsync();
-            return allTools.Where(t => t.Category.Equals(category, StringComparison.OrdinalIgnoreCase)).ToList();
+            var all = await DiscoverToolsAsync();
+            return all.Where(t => t.Category.Equals(category, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         public async Task<MCPToolExecutionResult> ExecuteToolWithRetryAsync(string toolName, Dictionary<string, object> arguments, int maxRetries = 3, string? agentName = null)
         {
-            int retryCount = 0;
-            Exception? lastException = null;
-
-            while (retryCount < maxRetries)
+            for (int i = 1; i <= maxRetries; i++)
             {
-                try
-                {
-                    var result = await ExecuteToolAsync(toolName, arguments, agentName);
-                    result.RetryCount = retryCount;
-
-                    if (result.Success)
-                        return result;
-
-                    lastException = new Exception(result.Error ?? "Unknown error");
-                    retryCount++;
-                    await Task.Delay(1000 * retryCount); // Exponential backoff
-                }
-                catch (Exception ex)
-                {
-                    lastException = ex;
-                    retryCount++;
-                    await Task.Delay(1000 * retryCount);
-                }
+                var result = await ExecuteToolAsync(toolName, arguments, agentName);
+                result.RetryCount = i - 1;
+                if (result.Success) return result;
+                await Task.Delay(1000 * i);
             }
 
             return new MCPToolExecutionResult
             {
                 Success = false,
                 ToolName = toolName,
-                Arguments = arguments,
-                AgentName = agentName,
-                Error = $"Tool execution failed after {maxRetries} retries: {lastException?.Message}",
+                Error = $"Tool execution failed after {maxRetries} retries",
                 RetryCount = maxRetries
             };
         }
 
-        private string DetermineToolCategory(string toolName)
+        private async Task<object?> HandleUpdateSeverityAsync(Dictionary<string, object> arguments)
         {
-            if (toolName.Contains("incident"))
-                return "Incident";
-            if (toolName.Contains("knowledge"))
-                return "Knowledge";
-            if (toolName.Contains("analyze") || toolName.Contains("recommend"))
-                return "AI";
-            return "General";
+            var id = Convert.ToInt32(arguments.GetValueOrDefault("incidentId"));
+            var incident = await _incidentService.GetByIdAsync(id);
+            if (incident == null) return null;
+            incident.Severity = arguments.GetValueOrDefault("newSeverity")?.ToString() ?? incident.Severity;
+            return incident;
         }
     }
 }

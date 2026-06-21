@@ -38,11 +38,11 @@ Select the most appropriate tool for this request. Return ONLY the tool name.
 If no tool is appropriate, return 'none'.";
 
             var result = await _semanticKernelService.GetChatCompletionAsync(toolSelectionPrompt);
-            var selectedTool = result.ToString().Trim().ToLower();
+            var selectedTool = result.ToString().Trim().ToLower()
+                .Replace("'", "").Replace("\"", "").Replace("`", "").Split('\n')[0].Trim();
 
             if (selectedTool == "none" || !availableTools.Any(t => t.Name.Equals(selectedTool, StringComparison.OrdinalIgnoreCase)))
             {
-                // Fallback to keyword-based selection
                 selectedTool = SelectToolByKeywords(userRequest, availableTools);
             }
 
@@ -58,11 +58,15 @@ If no tool is appropriate, return 'none'.";
 Return the arguments as a JSON object with key-value pairs.
 If an argument cannot be determined, use null or an empty string.";
 
-            var result = await _semanticKernelService.GetChatCompletionAsync(argumentExtractionPrompt);
-            
             try
             {
-                var argumentsJson = result.ToString();
+                var result = await _semanticKernelService.GetChatCompletionAsync(argumentExtractionPrompt);
+                var argumentsJson = result.ToString()
+                    .Replace("```json", "").Replace("```", "").Trim();
+                var start = argumentsJson.IndexOf('{');
+                var end = argumentsJson.LastIndexOf('}');
+                if (start >= 0 && end > start)
+                    argumentsJson = argumentsJson.Substring(start, end - start + 1);
                 var arguments = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(argumentsJson);
                 return arguments ?? new Dictionary<string, object>();
             }
@@ -116,30 +120,23 @@ Return 'true' if the tool is appropriate, 'false' otherwise.";
         {
             var lowerRequest = userRequest.ToLower();
 
-            // Keyword-based tool selection
-            if (lowerRequest.Contains("similar") && lowerRequest.Contains("incident"))
-                return "retrieve_similar_incidents";
-            
+            if (lowerRequest.Contains("similar") || lowerRequest.Contains("historical") || lowerRequest.Contains("retrieve")
+                || lowerRequest.Contains("plan") || lowerRequest.Contains("analysis") || lowerRequest.Contains("analyze"))
+                return "retrieve_historical_incidents";
+
             if (lowerRequest.Contains("search") && lowerRequest.Contains("incident"))
                 return "search_incidents";
-            
-            if (lowerRequest.Contains("knowledge") || lowerRequest.Contains("documentation") || lowerRequest.Contains("article"))
+
+            if (lowerRequest.Contains("knowledge") || lowerRequest.Contains("documentation") || lowerRequest.Contains("recommend"))
                 return "search_knowledge";
-            
-            if (lowerRequest.Contains("analyze"))
-                return "analyze_incident";
-            
-            if (lowerRequest.Contains("recommend") || lowerRequest.Contains("mitigation"))
-                return "generate_recommendations";
-            
+
             if (lowerRequest.Contains("create") && lowerRequest.Contains("incident"))
                 return "create_incident";
-            
-            if (lowerRequest.Contains("update") && lowerRequest.Contains("incident"))
-                return "update_incident";
 
-            // Default fallback
-            return availableTools.FirstOrDefault()?.Name ?? "none";
+            if (lowerRequest.Contains("update") || lowerRequest.Contains("severity"))
+                return "update_severity";
+
+            return availableTools.FirstOrDefault()?.Name ?? "retrieve_historical_incidents";
         }
     }
 }

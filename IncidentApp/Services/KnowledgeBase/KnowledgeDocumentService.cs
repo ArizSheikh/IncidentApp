@@ -84,14 +84,15 @@ namespace IncidentApp.Services.KnowledgeBase
 
         private async Task<string> ExtractTextFromFileAsync(Stream fileStream, string fileName)
         {
-            var extractionService = _textExtractionServices.FirstOrDefault(s => s.CanHandle(fileName));
+            var cleanFileName = fileName.TrimEnd('\\', '/');
+            var extractionService = _textExtractionServices.FirstOrDefault(s => s.CanHandle(cleanFileName));
             
             if (extractionService == null)
             {
-                throw new NotSupportedException($"No text extraction service found for file: {fileName}");
+                throw new NotSupportedException($"No text extraction service found for file: {cleanFileName}");
             }
 
-            return await extractionService.ExtractTextAsync(fileStream, fileName);
+            return await extractionService.ExtractTextAsync(fileStream, cleanFileName);
         }
     }
 }

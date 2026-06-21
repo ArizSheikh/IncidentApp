@@ -10,7 +10,8 @@ namespace IncidentApp.Services.KnowledgeBase
 
         public bool CanHandle(string fileName)
         {
-            var extension = Path.GetExtension(fileName);
+            var cleanName = fileName.TrimEnd('\\', '/');
+            var extension = Path.GetExtension(cleanName);
             return _supportedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
         }
 

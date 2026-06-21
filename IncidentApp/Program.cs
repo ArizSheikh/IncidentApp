@@ -46,8 +46,8 @@ builder.Services.AddScoped<GroqService>();
 // Embedding Services
 builder.Services.AddScoped<OllamaEmbeddingService>();
 
-// MCP Integration - Register as Singleton to maintain tool registration across requests
-builder.Services.AddSingleton<MCPServer>();
+// MCP Integration
+builder.Services.AddScoped<MCPServer>();
 builder.Services.AddScoped<MCPToolAdapter>();
 
 // AI-Enabled Features
@@ -63,6 +63,9 @@ builder.Services.AddSingleton<PIIRedactionService>();
 builder.Services.AddSingleton<AIInputSanitizer>();
 
 // KnowledgeBase Features
+builder.Services.AddScoped<ITextExtractionService, PdfTextExtractionService>();
+builder.Services.AddScoped<ITextExtractionService, DocxTextExtractionService>();
+builder.Services.AddScoped<ITextExtractionService, TextFileExtractionService>();
 builder.Services.AddScoped<PdfTextExtractionService>();
 builder.Services.AddScoped<DocxTextExtractionService>();
 builder.Services.AddScoped<TextFileExtractionService>();

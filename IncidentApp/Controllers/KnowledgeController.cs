@@ -48,12 +48,13 @@ namespace IncidentApp.Controllers
                     return BadRequest("Source is required");
 
                 using var stream = file.OpenReadStream();
+                var fileName = Path.GetFileName(file.FileName.TrimEnd('\\', '/'));
                 var document = await _knowledgeDocumentService.UploadDocumentAsync(
                     title,
                     category,
                     source,
                     stream,
-                    file.FileName);
+                    fileName);
 
                 return Ok(new
                 {
@@ -184,7 +185,9 @@ namespace IncidentApp.Controllers
                 if (string.IsNullOrWhiteSpace(query))
                     return BadRequest("Query parameter is required");
 
+                Console.WriteLine($"[KnowledgeController.SearchKnowledge] Searching for: '{query}' with threshold={scoreThreshold}");
                 var retrievalResult = await _knowledgeRetrievalService.RetrieveRelevantKnowledgeAsync(query, limit, scoreThreshold);
+                Console.WriteLine($"[KnowledgeController.SearchKnowledge] Found {retrievalResult.Documents.Count} documents, {retrievalResult.KnowledgeChunks.Count} chunks");
 
                 return Ok(new
                 {
@@ -214,6 +217,7 @@ namespace IncidentApp.Controllers
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"[KnowledgeController.SearchKnowledge] Error: {ex.Message}");
                 return StatusCode(500, $"Internal server error: {ex.Message}");
             }
         }

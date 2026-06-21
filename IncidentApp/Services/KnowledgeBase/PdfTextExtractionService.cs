@@ -1,5 +1,6 @@
-using PdfSharp.Pdf;
-using PdfSharp.Pdf.IO;
+using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Canvas.Parser;
+using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using System.Text;
 
 namespace IncidentApp.Services.KnowledgeBase
@@ -17,78 +18,23 @@ namespace IncidentApp.Services.KnowledgeBase
         {
             try
             {
-                using var pdfDocument = PdfReader.Open(fileStream);
                 var text = new StringBuilder();
 
-                foreach (PdfPage page in pdfDocument.Pages)
+                using var pdfReader = new PdfReader(fileStream);
+                using var pdfDocument = new PdfDocument(pdfReader);
+
+                for (int i = 1; i <= pdfDocument.GetNumberOfPages(); i++)
                 {
-                    // Extract text from PDF page
-                    for (int i = 0; i < page.Contents.Elements.Count; i++)
-                    {
-                        var element = page.Contents.Elements[i];
-                        if (element is PdfDictionary dictionary)
-                        {
-                            ExtractTextFromDictionary(dictionary, text);
-                        }
-                    }
+                    var strategy = new SimpleTextExtractionStrategy();
+                    var pageText = PdfTextExtractor.GetTextFromPage(pdfDocument.GetPage(i), strategy);
+                    text.AppendLine(pageText);
                 }
 
-                return text.ToString();
+                return await Task.FromResult(text.ToString());
             }
             catch (Exception ex)
             {
                 throw new InvalidOperationException($"Failed to extract text from PDF: {ex.Message}", ex);
-            }
-        }
-
-        private void ExtractTextFromDictionary(PdfDictionary dictionary, StringBuilder text)
-        {
-            try
-            {
-                foreach (var key in dictionary.Elements.Keys)
-                {
-                    var element = dictionary.Elements[key];
-                    if (element is PdfString pdfString)
-                    {
-                        text.Append(pdfString.Value);
-                        text.Append(" ");
-                    }
-                    else if (element is PdfDictionary nestedDictionary)
-                    {
-                        ExtractTextFromDictionary(nestedDictionary, text);
-                    }
-                    else if (element is PdfArray array)
-                    {
-                        ExtractTextFromArray(array, text);
-                    }
-                }
-            }
-            catch
-            {
-                // Skip problematic elements
-            }
-        }
-
-        private void ExtractTextFromArray(PdfArray array, StringBuilder text)
-        {
-            try
-            {
-                foreach (var element in array.Elements)
-                {
-                    if (element is PdfString pdfString)
-                    {
-                        text.Append(pdfString.Value);
-                        text.Append(" ");
-                    }
-                    else if (element is PdfDictionary dictionary)
-                    {
-                        ExtractTextFromDictionary(dictionary, text);
-                    }
-                }
-            }
-            catch
-            {
-                // Skip problematic elements
             }
         }
     }

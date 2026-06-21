@@ -18,13 +18,13 @@ namespace IncidentApp.AI.MCP
             {
                 ToolName = result.ToolName ?? string.Empty,
                 AgentName = result.AgentName,
-                Arguments = result.Arguments,
                 Success = result.Success,
                 Error = result.Error,
                 ExecutionTime = result.ExecutionTime,
                 DurationMs = (long)result.Duration.TotalMilliseconds,
                 RetryCount = result.RetryCount,
-                Category = DetermineToolCategory(result.ToolName)
+                Category = DetermineToolCategory(result.ToolName),
+                ArgumentsJson = SafeSerialize(result.Arguments)
             };
 
             await _logRepository.CreateLogAsync(log);
@@ -36,15 +36,27 @@ namespace IncidentApp.AI.MCP
             {
                 ToolName = selectedTool,
                 AgentName = agentName,
-                Arguments = context,
                 Success = true,
                 ExecutionTime = DateTime.UtcNow,
                 DurationMs = 0,
                 RetryCount = 0,
-                Category = DetermineToolCategory(selectedTool)
+                Category = DetermineToolCategory(selectedTool),
+                ArgumentsJson = SafeSerialize(context)
             };
 
             await _logRepository.CreateLogAsync(log);
+        }
+
+        private static string SafeSerialize(Dictionary<string, object> args)
+        {
+            try
+            {
+                var slim = args.ToDictionary(k => k.Key, k => (object)(k.Value?.ToString()?.Length > 200
+                    ? k.Value.ToString()!.Substring(0, 200) + "..."
+                    : k.Value?.ToString() ?? ""));
+                return System.Text.Json.JsonSerializer.Serialize(slim);
+            }
+            catch { return "{}"; }
         }
 
         public async Task<List<MCPToolExecutionLog>> GetExecutionHistoryAsync(string? toolName = null, DateTime? startDate = null, DateTime? endDate = null)

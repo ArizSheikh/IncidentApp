@@ -102,8 +102,16 @@ namespace IncidentApp.AI
 
             stopwatch.Stop();
 
-            // Log governance data
-            _ = LogGovernanceDataAsync(prompt, result ?? string.Empty, stopwatch.ElapsedMilliseconds);
+            // Log governance data (wrapped in try-catch to prevent blocking)
+            try
+            {
+                _ = LogGovernanceDataAsync(prompt, result ?? string.Empty, stopwatch.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                // Governance logging failed but don't block the main workflow
+                Console.WriteLine($"[GroqService] Governance logging failed: {ex.Message}");
+            }
 
             return result;
         }

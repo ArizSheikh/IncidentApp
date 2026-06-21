@@ -21,14 +21,30 @@ namespace IncidentApp.Controllers
         public IActionResult ListTools()
         {
             var tools = _mcpServer.ListTools();
-            return Ok(new { tools });
+            return Ok(new
+            {
+                tools = tools.Select(t => new
+                {
+                    t.Name,
+                    t.Description,
+                    t.Schema
+                })
+            });
         }
 
         [HttpGet("resources")]
         public IActionResult ListResources()
         {
             var resources = _mcpServer.ListResources();
-            return Ok(new { resources });
+            return Ok(new
+            {
+                resources = resources.Select(r => new
+                {
+                    r.Name,
+                    r.Description,
+                    r.Uri
+                })
+            });
         }
 
         [HttpPost("execute/{toolName}")]

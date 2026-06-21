@@ -43,14 +43,24 @@ namespace IncidentApp.AI.Embedding
                 systemComponent
             );
 
-            return await GenerateEmbeddingFromTextAsync(prompt);
+            // Truncate prompt to prevent exceeding Ollama context window
+            const int maxPromptLength = 3000;
+            var truncatedPrompt = prompt.Length > maxPromptLength ? prompt.Substring(0, maxPromptLength) : prompt;
+
+            return await GenerateEmbeddingFromTextAsync(truncatedPrompt);
         }
 
         public async Task<float[]> GenerateEmbeddingFromTextAsync(string text)
         {
             try
             {
-                var requestBody = new { model = _model, prompt = text };
+                // Truncate text if it's too long for the context window
+                // Ollama models typically have context limits around 2048-8192 tokens
+                // We'll truncate to 4000 characters as a safe limit
+                const int maxTextLength = 4000;
+                var truncatedText = text.Length > maxTextLength ? text.Substring(0, maxTextLength) : text;
+
+                var requestBody = new { model = _model, prompt = truncatedText };
 
                 var request = new HttpRequestMessage(HttpMethod.Post, "/api/embeddings");
                 request.Content = new StringContent(
